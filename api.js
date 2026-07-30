@@ -55,7 +55,8 @@ const server = http.createServer((req, res) => {
           message: 'Login successful',
           user: {
             username: result.user.username,
-            expiryDate: result.user.expiry_date
+            expiryDate: result.user.expiry_date,
+            key: result.user.key_used
           }
         }));
       } catch (error) {
@@ -114,7 +115,71 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Get active config endpoint
+  // Get active config endpoint (by key)
+  if (req.url.startsWith('/api/load?') && req.method === 'GET') {
+    try {
+      const urlParams = new URLSearchParams(req.url.split('?')[1]);
+      const key = urlParams.get('key');
+
+      if (!key) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('-- Error: Missing key parameter\n-- Usage: /api/load?key=YOUR_LICENSE_KEY');
+        return;
+      }
+
+      // Find user by key
+      const users = require('./database').userDB;
+      const allUsers = require('fs').readFileSync(require('path').join(__dirname, 'users.json'), 'utf8');
+      const usersList = JSON.parse(allUsers);
+      const user = usersList.find(u => u.key_used === key);
+
+      if (!user) {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('-- Error: Invalid key\n-- Please register at the website with a valid key');
+        return;
+      }
+
+      // Check if expired
+      if (user.expiry_date < Date.now()) {
+        res.writeHead(403, { 'Content-Type': 'text/plain' });
+        res.end('-- Error: Your subscription has expired\n-- Please renew at the website');
+        return;
+      }
+
+      const configs = user.configs;
+
+      if (!configs) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('-- No configs found\n-- Please login to the website and create a config');
+        return;
+      }
+
+      // Find active config
+      let activeCode = null;
+      for (const [name, config] of Object.entries(configs)) {
+        if (config.active) {
+          activeCode = config.code;
+          break;
+        }
+      }
+
+      if (!activeCode) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('-- No active config\n-- Please activate a config in the Config Editor');
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(activeCode);
+    } catch (error) {
+      console.error(error);
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('-- Server error');
+    }
+    return;
+  }
+
+  // Get active config endpoint (by username - legacy)
   if (req.url.startsWith('/api/get-config?') && req.method === 'GET') {
     try {
       const urlParams = new URLSearchParams(req.url.split('?')[1]);
