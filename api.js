@@ -3,6 +3,10 @@ const { userDB } = require('./database');
 
 const PORT = process.env.PORT || 3000;
 
+// Store active sessions (username -> timestamp)
+const activeSessions = new Map();
+const SESSION_TIMEOUT = 300000; // 5 minutes
+
 // Simple HTTP server for authentication API
 const server = http.createServer((req, res) => {
   // Enable CORS
@@ -59,6 +63,10 @@ const server = http.createServer((req, res) => {
             key: result.user.key_used
           }
         }));
+
+        // Create active session
+        activeSessions.set(username.toLowerCase(), Date.now());
+        console.log(`✅ Session created for: ${username}`);
       } catch (error) {
         console.error(error);
         res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -112,6 +120,70 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ success: false, message: 'Server error' }));
       }
     });
+    return;
+  }
+
+  // Universal load endpoint (no parameters needed!)
+  if (req.url === '/load' && req.method === 'GET') {
+    try {
+      // Clean up old sessions
+      const now = Date.now();
+      for (const [user, timestamp] of activeSessions.entries()) {
+        if (now - timestamp > SESSION_TIMEOUT) {
+          activeSessions.delete(user);
+        }
+      }
+
+      // Find most recent active session
+      let mostRecentUser = null;
+      let mostRecentTime = 0;
+      
+      for (const [user, timestamp] of activeSessions.entries()) {
+        if (timestamp > mostRecentTime) {
+          mostRecentTime = timestamp;
+          mostRecentUser = user;
+        }
+      }
+
+      if (!mostRecentUser) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('-- No active session found\n-- Please login to the website first\n-- Session expires after 5 minutes');
+        return;
+      }
+
+      console.log(`📦 Loading config for: ${mostRecentUser}`);
+
+      // Get user's configs
+      const configs = userDB.getConfigs(mostRecentUser);
+
+      if (!configs) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(`-- No configs found for ${mostRecentUser}\n-- Please create a config in the Config Editor`);
+        return;
+      }
+
+      // Find active config
+      let activeCode = null;
+      for (const [name, config] of Object.entries(configs)) {
+        if (config.active) {
+          activeCode = config.code;
+          break;
+        }
+      }
+
+      if (!activeCode) {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(`-- No active config for ${mostRecentUser}\n-- Please activate a config in the Config Editor`);
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(activeCode);
+    } catch (error) {
+      console.error(error);
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end('-- Server error');
+    }
     return;
   }
 
