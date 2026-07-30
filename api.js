@@ -126,13 +126,18 @@ const server = http.createServer((req, res) => {
   // Universal load endpoint (no parameters needed!)
   if (req.url === '/load' && req.method === 'GET') {
     try {
+      console.log('📡 /load endpoint hit');
+      
       // Clean up old sessions
       const now = Date.now();
       for (const [user, timestamp] of activeSessions.entries()) {
         if (now - timestamp > SESSION_TIMEOUT) {
+          console.log(`⏰ Expired session removed: ${user}`);
           activeSessions.delete(user);
         }
       }
+
+      console.log(`🔍 Active sessions: ${Array.from(activeSessions.keys()).join(', ') || 'none'}`);
 
       // Find most recent active session
       let mostRecentUser = null;
@@ -146,43 +151,51 @@ const server = http.createServer((req, res) => {
       }
 
       if (!mostRecentUser) {
+        console.log('❌ No active session found');
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('-- No active session found\n-- Please login to the website first\n-- Session expires after 5 minutes');
         return;
       }
 
-      console.log(`📦 Loading config for: ${mostRecentUser}`);
+      console.log(`� Most recent user: ${mostRecentUser}`);
 
       // Get user's configs
       const configs = userDB.getConfigs(mostRecentUser);
 
       if (!configs) {
+        console.log(`❌ No configs found for ${mostRecentUser}`);
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end(`-- No configs found for ${mostRecentUser}\n-- Please create a config in the Config Editor`);
         return;
       }
 
+      console.log(`📋 Configs found: ${Object.keys(configs).join(', ')}`);
+
       // Find active config
       let activeCode = null;
+      let activeConfigName = null;
       for (const [name, config] of Object.entries(configs)) {
         if (config.active) {
           activeCode = config.code;
+          activeConfigName = name;
           break;
         }
       }
 
       if (!activeCode) {
+        console.log(`❌ No active config for ${mostRecentUser}`);
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end(`-- No active config for ${mostRecentUser}\n-- Please activate a config in the Config Editor`);
         return;
       }
 
+      console.log(`✅ Loading active config: ${activeConfigName}`);
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end(activeCode);
     } catch (error) {
-      console.error(error);
+      console.error('❌ Error in /load endpoint:', error);
       res.writeHead(500, { 'Content-Type': 'text/plain' });
-      res.end('-- Server error');
+      res.end('-- Server error: ' + error.message);
     }
     return;
   }
